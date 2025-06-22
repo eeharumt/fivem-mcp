@@ -1,0 +1,37 @@
+{
+  "name": "mcp-fivem-server",
+  "version": "0.1.0",
+  "description": "A Model Context Protocol server for FiveM plugin development",
+  "license": "MIT",
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "fivem",
+    "plugin-development",
+    "rcon",
+    "server-management"
+  ],
+  "author": "eeharumt",
+  "type": "module",
+  "bin": {
+    "mcp-fivem": "./build/index.js"
+  },
+  "files": [
+    "build",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc && node -e \"require('fs').chmodSync('build/index.js', '755')\"",
+    "prepare": "npm run build",
+    "watch": "tsc --watch",
+    "inspector": "npx @modelcontextprotocol/inspector build/index.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "0.6.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.19.1",
+    "typescript": "^5.8.3"
+  }
+}

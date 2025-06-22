@@ -1,0 +1,88 @@
+# Dependencies
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Build output
+build/
+dist/
+lib/
+out/
+
+# TypeScript
+*.tsbuildinfo
+*.d.ts.map
+
+# Environment files
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Logs
+logs/
+*.log
+log-*.txt
+
+# Runtime data
+pids/
+*.pid
+*.seed
+*.pid.lock
+
+# IDE/Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.project
+.classpath
+.settings/
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+desktop.ini
+
+# FiveM specific
+txData/
+cache/
+citizen/
+server.cfg
+server-data/
+fxserver.exe
+FXServer.exe
+run.cmd
+run.sh
+
+# MCP specific
+.mcp/
+mcp-logs/
+
+# Test coverage
+coverage/
+.nyc_output/
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.temp
+
+# Package manager lockfiles (keep pnpm-lock.yaml but ignore others)
+package-lock.json
+yarn.lock
+
+# Backup files
+*.bak
+*.backup
+*~
