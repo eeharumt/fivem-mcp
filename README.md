@@ -7,8 +7,216 @@ FiveM RCON Model Context Protocolサーバー
 - RCON経由でのFiveMサーバー通信  
 - プラグインの管理（ensure、stop、restart）
 - サーバーログの監視とプラグインログの取得
+- **FiveMクライアントログの取得**
+- **スクリプト経由でのF8コンソールコマンド実行（ExecuteCommand）**
+- **イベントシステムによるサーバー・クライアント間通信**
+- **FiveMプラグイン（mcp-bridge）との連携**
 - リソースの更新とサーバーステータスの確認
 - 任意のRCONコマンドの実行
+
+## 🚀 新しい統合ツール（v0.3.0）
+
+**改善点:**
+- ✅ 17個のツールを7個に統合
+- ✅ 統一された命名規則（fivem_* プレフィックス）
+- ✅ サーバー・クライアント間でのコマンド実行機能追加
+- ✅ 直接RCONコマンド実行の分離
+- ✅ ResponseParserの改善でエラー処理を最適化
+- ✅ 機能的グループ化で直感的な操作
+- ✅ 冗長性の排除で保守性向上
+
+### 📋 統合ツール一覧
+
+#### 1. `fivem_plugin_manage` - プラグイン管理
+プラグインの開始、停止、再起動、リソース更新を統合管理
+
+**パラメータ:**
+- `action` (必須): "ensure" | "stop" | "restart" | "refresh"
+- `plugin_name` (ensure/stop/restart時必須): プラグイン名
+
+**使用例:**
+```bash
+# プラグインの開始
+fivem_plugin_manage --action ensure --plugin_name my-plugin
+
+# プラグインの停止
+fivem_plugin_manage --action stop --plugin_name my-plugin
+
+# プラグインの再起動
+fivem_plugin_manage --action restart --plugin_name my-plugin
+
+# リソースの更新（fxmanifest変更後など）
+fivem_plugin_manage --action refresh
+```
+
+#### 2. `fivem_command_execute` - コマンド実行
+サーバーサイドとクライアントサイドでのコマンド実行を統合
+
+**パラメータ:**
+- `mode` (必須): "server" | "client"
+  - **"server"**: サーバー側でコマンドを実行
+  - **"client"**: クライアント側でコマンドを実行
+- `command` (必須): 実行するコマンド
+- `player_id` (オプション): クライアントモード時のターゲットプレイヤーID（未指定の場合は全クライアントで実行）
+
+**使用例:**
+```bash
+# サーバー側でコマンド実行
+fivem_command_execute --mode server --command "say Hello from Server!"
+
+# 特定プレイヤーのクライアントでコマンド実行
+fivem_command_execute --mode client --command "me waves hand" --player_id 1
+
+# 全クライアントでコマンド実行
+fivem_command_execute --mode client --command "engine"
+```
+
+#### 3. `fivem_rcon_execute` - 直接RCONコマンド実行
+低レベルなサーバー管理のための直接RCONコマンド実行
+
+**パラメータ:**
+- `command` (必須): 実行するRCONコマンド
+
+**使用例:**
+```bash
+# 直接RCONコマンド実行（サーバー管理用）
+fivem_rcon_execute --command "status"
+
+# リソース管理
+fivem_rcon_execute --command "restart my-plugin"
+```
+
+#### 4. `fivem_event_trigger` - イベントトリガー
+サーバー・クライアント間のイベントトリガーを統合
+
+**パラメータ:**
+- `type` (必須): "server" | "client"
+- `event_name` (必須): イベント名
+- `player_id` (client時必須): プレイヤーID
+- `args` (オプション): JSONエンコードされた引数
+
+**使用例:**
+```bash
+# サーバーイベントのトリガー
+fivem_event_trigger --type server --event_name playerJoined --args '["player123", "NewPlayer"]'
+
+# クライアントイベントのトリガー
+fivem_event_trigger --type client --event_name showNotification --player_id 1 --args '["Hello Client!"]'
+```
+
+#### 5. `fivem_player_get` - プレイヤー情報取得
+プレイヤー一覧取得と詳細情報取得を統合
+
+**パラメータ:**
+- `action` (必須): "list" | "info"
+- `player_id` (info時必須): プレイヤーID
+
+**使用例:**
+```bash
+# プレイヤー一覧取得
+fivem_player_get --action list
+
+# 特定プレイヤーの詳細情報取得
+fivem_player_get --action info --player_id 1
+```
+
+#### 6. `fivem_logs_get` - ログ取得
+サーバー・クライアント・プラグインログ取得を統合
+
+**パラメータ:**
+- `source` (必須): "server" | "server_plugin" | "client" | "client_plugin"
+- `lines` (オプション): 取得行数（デフォルト値はソースによって異なる）
+- `plugin_name` (オプション): プラグイン名（*_plugin時のみ）
+
+**使用例:**
+```bash
+# サーバーログ取得
+fivem_logs_get --source server --lines 100
+
+# 特定プラグインのサーバーログ取得
+fivem_logs_get --source server_plugin --plugin_name my-plugin --lines 50
+
+# クライアントログ取得
+fivem_logs_get --source client --lines 100
+
+# 特定プラグインのクライアントログ取得
+fivem_logs_get --source client_plugin --plugin_name my-plugin --lines 50
+```
+
+#### 7. `fivem_system_manage` - システム管理
+システムヘルスチェック、ログクリアを統合
+
+**パラメータ:**
+- `action` (必須): "health" | "clear"
+
+**使用例:**
+```bash
+# プラグインのヘルスチェック
+fivem_system_manage --action health
+
+# ログのクリア
+fivem_system_manage --action clear
+```
+
+## FiveMプラグイン連携
+
+MCPサーバーは専用のFiveMプラグイン（`mcp-bridge`）と連携することで、RCONでは実現できない高度な機能を提供します：
+
+### 🔗 連携アーキテクチャ
+```
+MCP Server ←→ RCON Protocol ←→ FiveM Server ←→ mcp-bridge Plugin
+```
+
+**新方式の特徴:**
+- ✅ HTTPサーバー不要
+- ✅ 既存のRCON接続を活用
+- ✅ シンプルな実装
+- ✅ リアルタイム通信
+- ✅ 軽量で高速
+
+### 🚀 プラグイン経由で利用可能な機能
+- **サーバーサイドコマンド実行**: RCONカスタムコマンド経由でExecuteCommandを使用
+- **クライアントサイドコマンド実行**: 特定プレイヤーまたは全プレイヤーでのコマンド実行
+- **リアルタイムイベント**: TriggerEvent/TriggerClientEventの直接実行
+- **プレイヤー管理**: オンラインプレイヤーの詳細情報取得
+- **ヘルスチェック**: プラグインの状態監視
+
+### 🆕 v0.3.0の新機能
+- **クライアント・サーバー分離**: `fivem_command_execute`でサーバーとクライアント側を明確に分離
+- **直接RCON実行**: `fivem_rcon_execute`で低レベルなサーバー管理コマンドを実行
+- **エラー処理改善**: ResponseParserの最適化により、プラグインからのレスポンスを正確に解析
+- **新RCONコマンド**: `mcp_client_command`、`mcp_client_command_all`をプラグインに追加
+
+### 🔧 FiveMプラグインのインストール
+
+1. `fivem-plugin/mcp-bridge` フォルダを FiveM サーバーの `resources` ディレクトリにコピー
+2. `server.cfg` に以下を追加:
+```
+ensure mcp-bridge
+```
+3. FiveMサーバーを再起動
+
+### 🎯 使用例
+
+```bash
+# サーバー側でメッセージ送信
+fivem_command_execute --mode server --command "say Hello from MCP Bridge!"
+
+# クライアント側でコマンド実行
+fivem_command_execute --mode client --command "me waves" --player_id 1
+
+# サーバーイベントのトリガー
+fivem_event_trigger --type server --event_name playerJoined --args '["player123", "NewPlayer"]'
+
+# プレイヤー情報の取得
+fivem_player_get --action info --player_id 1
+
+# プラグインの健康状態チェック
+fivem_system_manage --action health
+
+# 直接RCONコマンド実行
+fivem_rcon_execute --command "status"
+```
 
 ## 機能詳細
 
@@ -17,22 +225,15 @@ FiveM RCON Model Context Protocolサーバー
 - `fivem://console/info` - サーバーコンソール情報（ログファイル経由）
 
 ### ツール
-- `connect_server` - RCON経由でFiveMサーバーに接続
-  - パラメータ: host (オプション、デフォルト: localhost), port (オプション、デフォルト: 30120), password (必須), logs_dir (オプション)
-- `ensure_plugin` - FiveMプラグインを開始/確保
-  - パラメータ: plugin_name (必須)
-- `stop_plugin` - FiveMプラグインを停止
-  - パラメータ: plugin_name (必須)
-- `restart_plugin` - FiveMプラグインを再起動
-  - パラメータ: plugin_name (必須)
-- `execute_command` - 任意のRCONコマンドを実行
-  - パラメータ: command (必須)
-- `refresh_resources` - FiveMサーバーのリソースリストを更新
-- `get_server_logs` - FiveMサーバーのコンソールログを取得
-  - パラメータ: lines (オプション、デフォルト: 100)
-- `get_plugin_logs` - FiveMプラグイン/スクリプトログを取得
-  - パラメータ: lines (オプション、デフォルト: 50), plugin_name (オプション)
-- `clear_logs` - ローカル操作ログをクリア
+
+#### サーバー管理
+- `fivem_plugin_manage` - プラグイン管理（ensure/stop/restart/refresh）
+- `fivem_command_execute` - コマンド実行（Server/Client）
+- `fivem_rcon_execute` - 直接RCONコマンド実行
+- `fivem_event_trigger` - イベントトリガー（Server/Client）
+- `fivem_player_get` - プレイヤー情報取得（List/Info）
+- `fivem_logs_get` - ログ取得（Server/Client/Plugin）
+- `fivem_system_manage` - システム管理（Health/Clear）
 
 ## 開発
 
@@ -85,35 +286,109 @@ Cursor IDEで使用するには、設定を追加します：
 - `RCON_ADDRESS`: FiveMサーバーのホスト（必須）  
 - `RCON_PORT`: RCONポート（必須）
 - `RCON_PASSWORD`: RCONパスワード（必須）
-- `FIVEM_LOGS_DIR`: ログファイルが格納されているディレクトリのパス（**ログ機能使用時は必須**）
+- `FIVEM_LOGS_DIR`: サーバーログファイルが格納されているディレクトリのパス（**サーバーログ機能使用時は必須**）
+- `FIVEM_CLIENT_LOGS_DIR`: クライアントログファイルが格納されているディレクトリのパス（**クライアントログ機能使用時は必須**）
 
 すべての環境変数が設定されている場合、MCPサーバー起動時に自動的に接続を試行します。
 
 **ログ機能について:**
-`get_server_logs`および`get_plugin_logs`ツールを使用するには、`FIVEM_LOGS_DIR`の設定が必須です。
+- `fivem_logs_get --source server`および`fivem_logs_get --source server_plugin`ツールを使用するには、`FIVEM_LOGS_DIR`の設定が必須です。
+- `fivem_logs_get --source client`および`fivem_logs_get --source client_plugin`ツールを使用するには、`FIVEM_CLIENT_LOGS_DIR`の設定が必須です。
 
 ### ログディレクトリパスの設定
 
-`FIVEM_LOGS_DIR`には、ログファイル（`fxserver.log`、`server.log`等）が**直接格納されているディレクトリ**を指定してください。
+#### サーバーログ（FIVEM_LOGS_DIR）
+`FIVEM_LOGS_DIR`には、サーバーログファイル（`fxserver.log`、`server.log`等）が**直接格納されているディレクトリ**を指定してください。
 
 **設定例:**
+```bash
+export FIVEM_LOGS_DIR="/path/to/server/txData/default/logs"
+```
+
+#### クライアントログ（FIVEM_CLIENT_LOGS_DIR）
+`FIVEM_CLIENT_LOGS_DIR`には、FiveMクライアントログファイル（`CitizenFX.log`等）が**直接格納されているディレクトリ**を指定してください。
+
+**設定例:**
+```bash
+# Windows
+export FIVEM_CLIENT_LOGS_DIR="C:\Users\username\AppData\Local\FiveM\FiveM.app\logs"
+
+# Linux/WSL2
+export FIVEM_CLIENT_LOGS_DIR="/home/username/.local/share/CitizenFX"
+```
+
+**完全な環境変数設定例:**
 ```bash
 export RCON_ADDRESS="localhost"
 export RCON_PORT="30120"
 export RCON_PASSWORD="your_rcon_password"
 export FIVEM_LOGS_DIR="/path/to/server/txData/default/logs"
+export FIVEM_CLIENT_LOGS_DIR="/home/username/.local/share/CitizenFX"
 ```
 
 **ディレクトリ構造例:**
 ```
+# サーバーログ
 /path/to/server/txData/default/logs/    ← FIVEM_LOGS_DIRで直接指定
 ├── fxserver.log                        ← メインログファイル
 ├── server.log                          ← サーバーログファイル
 └── fxserver_20240101.log               ← 日付付きバックアップ
+
+# クライアントログ
+/home/username/.local/share/CitizenFX/  ← FIVEM_CLIENT_LOGS_DIRで直接指定
+├── CitizenFX.log                       ← メインクライアントログ
+├── CitizenFX_log.txt                   ← 追加ログファイル
+└── launcher.log                        ← ランチャーログ
 ```
+
+## 🚀 移行について
+
+### 旧ツールからの移行
+
+既存のツールは後方互換性のため保持されていますが、新しい統合ツールの使用を推奨します：
+
+| 旧ツール | 新ツール | 変更点 |
+|--------|--------|--------|
+| `ensure_plugin` | `fivem_plugin_manage` | `action: "ensure"` |
+| `stop_plugin` | `fivem_plugin_manage` | `action: "stop"` |
+| `restart_plugin` | `fivem_plugin_manage` | `action: "restart"` |
+| `execute_command` | `fivem_rcon_execute` | 直接RCONコマンド実行 |
+| `execute_plugin_command` | `fivem_command_execute` | `mode: "server"` |
+| `trigger_server_event_plugin` | `fivem_event_trigger` | `type: "server"` |
+| `trigger_client_event_plugin` | `fivem_event_trigger` | `type: "client"` |
+| `get_players_plugin` | `fivem_player_get` | `action: "list"` |
+| `get_player_info_plugin` | `fivem_player_get` | `action: "info"` |
+| `get_fivem_server_logs` | `fivem_logs_get` | `source: "server"` |
+| `get_fivem_server_plugin_logs` | `fivem_logs_get` | `source: "server_plugin"` |
+| `get_fivem_client_logs` | `fivem_logs_get` | `source: "client"` |
+| `get_fivem_client_plugin_logs` | `fivem_logs_get` | `source: "client_plugin"` |
+
+| `check_plugin_health` | `fivem_system_manage` | `action: "health"` |
+| `refresh_resources` | `fivem_plugin_manage` | `action: "refresh"` |
+| `clear_logs` | `fivem_system_manage` | `action: "clear"` |
 
 ```bash
 npm run inspector
 ```
 
 InspectorはブラウザでデバッグツールにアクセスするためのURLを提供します。
+
+## 📝 変更履歴
+
+### v0.3.0 (2025-07-06)
+- **🆕 新機能**: サーバー・クライアント間でのコマンド実行機能追加
+- **🆕 新ツール**: `fivem_rcon_execute` - 直接RCONコマンド実行
+- **🔧 改善**: `fivem_command_execute`を`mode: "server"/"client"`に変更
+- **🔧 改善**: ResponseParserの最適化でエラー処理を改善
+- **🔧 改善**: FiveMプラグインに`mcp_client_command`、`mcp_client_command_all`コマンド追加
+- **📖 更新**: ドキュメントとREADMEの全面的な更新
+
+### v0.2.0
+- **🆕 新機能**: 17個のツールを6個に統合
+- **🆕 新機能**: 統一された命名規則（fivem_* プレフィックス）
+- **🔧 改善**: 機能的グループ化で直感的な操作
+- **🔧 改善**: 冗長性の排除で保守性向上
+
+### v0.1.0
+- **🎉 初回リリース**: 基本的なFiveM RCON機能
+- **🆕 新機能**: プラグイン管理、ログ取得、イベントシステム

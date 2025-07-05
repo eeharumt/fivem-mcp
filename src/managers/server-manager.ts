@@ -1,5 +1,7 @@
 import { FiveMRconClient } from '../clients/rcon-client.js';
 import { LogFileReader } from '../utils/log-file-reader.js';
+import { ResponseParser } from '../utils/response-parser.js';
+import { MCPResponse } from '../types/index.js';
 
 /**
  * FiveM Server Manager
@@ -8,14 +10,18 @@ export class FiveMServerManager {
   private rconClient: FiveMRconClient;
   private logs: string[] = [];
   private logsDir?: string;
+  private clientLogsDir?: string;
 
-  constructor(host: string = 'localhost', port: number = 30120, password: string = '', logsDir?: string) {
+  constructor(host: string = 'localhost', port: number = 30120, password: string = '', logsDir?: string, clientLogsDir?: string) {
     if (!password) {
       throw new Error('RCON password is required');
     }
     this.rconClient = new FiveMRconClient(host, port, password);
     if(logsDir) {
       this.logsDir = logsDir;
+    }
+    if(clientLogsDir) {
+      this.clientLogsDir = clientLogsDir;
     }
   }
 
@@ -59,14 +65,183 @@ export class FiveMServerManager {
     }
   }
 
-  async executeCommand(command: string): Promise<string> {
+  async executeCommand(command: string): Promise<MCPResponse> {
+    // Validate command before execution
+    const validationResult = ResponseParser.validateCommand(command);
+    if (validationResult) {
+      this.logs.push(`[${new Date().toISOString()}] VALIDATION_ERROR: ${command} - ${validationResult.message}`);
+      return validationResult;
+    }
+
     try {
       const response = await this.rconClient.sendCommand(command);
-      this.logs.push(`[${new Date().toISOString()}] COMMAND: ${command} - ${response}`);
-      return response;
+      const parsedResponse = ResponseParser.parseRCONResponse(response, command);
+      
+      if (parsedResponse.success) {
+        this.logs.push(`[${new Date().toISOString()}] COMMAND: ${command} - SUCCESS`);
+      } else {
+        this.logs.push(`[${new Date().toISOString()}] COMMAND: ${command} - FAILED: ${parsedResponse.message}`);
+      }
+      
+      return parsedResponse;
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : 'Unknown error';
       this.logs.push(`[${new Date().toISOString()}] ERROR: Failed to execute ${command} - ${errorMsg}`);
+      
+      return {
+        success: false,
+        message: `Failed to execute command: ${errorMsg}`,
+        error: {
+          code: 'COMMAND_FAILED',
+          message: errorMsg,
+          details: { command }
+        }
+      };
+    }
+  }
+
+  async executePluginCommand(command: string): Promise<MCPResponse> {
+    // Validate command before execution
+    const validationResult = ResponseParser.validateCommand(command);
+    if (validationResult) {
+      this.logs.push(`[${new Date().toISOString()}] PLUGIN_VALIDATION_ERROR: ${command} - ${validationResult.message}`);
+      return validationResult;
+    }
+
+    try {
+      const response = await this.rconClient.sendCommand(`mcp_execute ${command}`);
+      const parsedResponse = ResponseParser.parseRCONResponse(response, `mcp_execute ${command}`);
+      
+      if (parsedResponse.success) {
+        this.logs.push(`[${new Date().toISOString()}] PLUGIN_COMMAND: ${command} - SUCCESS`);
+      } else {
+        this.logs.push(`[${new Date().toISOString()}] PLUGIN_COMMAND: ${command} - FAILED: ${parsedResponse.message}`);
+      }
+      
+      return parsedResponse;
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+      this.logs.push(`[${new Date().toISOString()}] ERROR: Failed to execute plugin command ${command} - ${errorMsg}`);
+      
+      return {
+        success: false,
+        message: `Failed to execute plugin command: ${errorMsg}`,
+        error: {
+          code: 'COMMAND_FAILED',
+          message: errorMsg,
+          details: { command: `mcp_execute ${command}` }
+        }
+      };
+    }
+  }
+
+  async triggerServerEventViaPlugin(eventName: string, args?: any[]): Promise<string> {
+    try {
+      const argsJson = args && args.length > 0 ? JSON.stringify(args) : '';
+      const command = argsJson ? `mcp_event_server ${eventName} ${argsJson}` : `mcp_event_server ${eventName}`;
+      const response = await this.rconClient.sendCommand(command);
+      this.logs.push(`[${new Date().toISOString()}] PLUGIN_SERVER_EVENT: ${eventName} - ${response}`);
+      return response;
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+      this.logs.push(`[${new Date().toISOString()}] ERROR: Failed to trigger server event ${eventName} - ${errorMsg}`);
+      throw error;
+    }
+  }
+
+  async triggerClientEventViaPlugin(eventName: string, playerId: number, args?: any[]): Promise<string> {
+    try {
+      const argsJson = args && args.length > 0 ? JSON.stringify(args) : '';
+      const command = argsJson ? 
+        `mcp_event_client ${playerId} ${eventName} ${argsJson}` : 
+        `mcp_event_client ${playerId} ${eventName}`;
+      const response = await this.rconClient.sendCommand(command);
+      this.logs.push(`[${new Date().toISOString()}] PLUGIN_CLIENT_EVENT: ${eventName} (Player: ${playerId}) - ${response}`);
+      return response;
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+      this.logs.push(`[${new Date().toISOString()}] ERROR: Failed to trigger client event ${eventName} - ${errorMsg}`);
+      throw error;
+    }
+  }
+
+  async getPlayersViaPlugin(): Promise<string> {
+    try {
+      const response = await this.rconClient.sendCommand('mcp_players');
+      this.logs.push(`[${new Date().toISOString()}] PLUGIN_PLAYERS: Retrieved players list`);
+      return response;
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+      this.logs.push(`[${new Date().toISOString()}] ERROR: Failed to get players via plugin - ${errorMsg}`);
+      throw error;
+    }
+  }
+
+  async getPlayerInfoViaPlugin(playerId: number): Promise<string> {
+    try {
+      const response = await this.rconClient.sendCommand(`mcp_player_info ${playerId}`);
+      this.logs.push(`[${new Date().toISOString()}] PLUGIN_PLAYER_INFO: Retrieved info for player ${playerId}`);
+      return response;
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+      this.logs.push(`[${new Date().toISOString()}] ERROR: Failed to get player info via plugin - ${errorMsg}`);
+      throw error;
+    }
+  }
+
+  async executeClientCommand(command: string, playerId?: number): Promise<MCPResponse> {
+    // Validate command before execution
+    const validationResult = ResponseParser.validateCommand(command);
+    if (validationResult) {
+      this.logs.push(`[${new Date().toISOString()}] CLIENT_VALIDATION_ERROR: ${command} - ${validationResult.message}`);
+      return validationResult;
+    }
+
+    try {
+      let rconCommand: string;
+      if (playerId) {
+        // Execute command for specific client
+        rconCommand = `mcp_client_command ${playerId} ${command}`;
+      } else {
+        // Execute command for all clients
+        rconCommand = `mcp_client_command_all ${command}`;
+      }
+      
+      const response = await this.rconClient.sendCommand(rconCommand);
+      const parsedResponse = ResponseParser.parseRCONResponse(response, rconCommand);
+      
+      if (parsedResponse.success) {
+        const target = playerId ? `player ${playerId}` : 'all clients';
+        this.logs.push(`[${new Date().toISOString()}] CLIENT_COMMAND: ${command} (${target}) - SUCCESS`);
+      } else {
+        this.logs.push(`[${new Date().toISOString()}] CLIENT_COMMAND: ${command} - FAILED: ${parsedResponse.message}`);
+      }
+      
+      return parsedResponse;
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+      this.logs.push(`[${new Date().toISOString()}] ERROR: Failed to execute client command ${command} - ${errorMsg}`);
+      
+      return {
+        success: false,
+        message: `Failed to execute client command: ${errorMsg}`,
+        error: {
+          code: 'COMMAND_FAILED',
+          message: errorMsg,
+          details: { command, playerId }
+        }
+      };
+    }
+  }
+
+  async checkPluginHealth(): Promise<string> {
+    try {
+      const response = await this.rconClient.sendCommand('mcp_health');
+      this.logs.push(`[${new Date().toISOString()}] PLUGIN_HEALTH: Health check completed`);
+      return response;
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+      this.logs.push(`[${new Date().toISOString()}] ERROR: Failed to check plugin health - ${errorMsg}`);
       throw error;
     }
   }
@@ -121,6 +296,48 @@ export class FiveMServerManager {
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : 'Unknown error';
       this.logs.push(`[${new Date().toISOString()}] ERROR: Failed to get plugin logs - ${errorMsg}`);
+      throw error;
+    }
+  }
+
+  async getClientLogs(lines: number = 100): Promise<string> {
+    try {
+      // Try to get client logs from log files
+      const logContent = await LogFileReader.readClientLogs(lines, this.clientLogsDir);
+      if (logContent) {
+        this.logs.push(`[${new Date().toISOString()}] CLIENT_LOG_ACCESS: Successfully read ${lines} client log lines`);
+        return logContent;
+      }
+      
+      // Return message when client logs are not found
+      const message = "FiveM client logs not found. Please ensure the client logs directory is configured correctly and FiveM has been run.";
+      this.logs.push(`[${new Date().toISOString()}] CLIENT_LOG_ACCESS: ${message}`);
+      return message;
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+      this.logs.push(`[${new Date().toISOString()}] ERROR: Failed to get client logs - ${errorMsg}`);
+      throw error;
+    }
+  }
+
+  async getClientPluginLogs(lines: number = 50, pluginName?: string): Promise<string> {
+    try {
+      // Try to get client plugin logs from log files
+      const logContent = await LogFileReader.readClientPluginLogs(lines, this.clientLogsDir, pluginName);
+      if (logContent) {
+        this.logs.push(`[${new Date().toISOString()}] CLIENT_PLUGIN_LOG_ACCESS: Successfully read ${lines} client plugin log lines`);
+        return logContent;
+      }
+      
+      // Return message when client plugin logs are not found
+      const message = pluginName 
+        ? `No client logs found for plugin '${pluginName}'. Plugin may not be running on client side or generating logs.`
+        : "No client plugin logs found. Plugins may not be running on client side or generating logs.";
+      this.logs.push(`[${new Date().toISOString()}] CLIENT_PLUGIN_LOG_ACCESS: ${message}`);
+      return message;
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+      this.logs.push(`[${new Date().toISOString()}] ERROR: Failed to get client plugin logs - ${errorMsg}`);
       throw error;
     }
   }
@@ -187,6 +404,28 @@ export class FiveMServerManager {
       return results.length > 1 ? results.join('\n') : null;
     } catch (error) {
       return null;
+    }
+  }
+
+  /**
+   * Get real-time server logs from the most current active log file
+   */
+  async getRealtimeServerLogs(lines: number = 50): Promise<string> {
+    try {
+      const result = await LogFileReader.getLatestLogLines(lines, this.logsDir);
+      this.logs.push(`[${new Date().toISOString()}] REALTIME_LOG_ACCESS: Retrieved ${lines} lines from current active log`);
+      
+      if (!result) {
+        const message = "No active server log file found or file is empty.";
+        this.logs.push(`[${new Date().toISOString()}] REALTIME_LOG_ACCESS: ${message}`);
+        return message;
+      }
+      
+      return result;
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+      this.logs.push(`[${new Date().toISOString()}] ERROR: Failed to get real-time server logs - ${errorMsg}`);
+      throw error;
     }
   }
 } 

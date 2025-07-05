@@ -31,7 +31,7 @@ let serverManager: FiveMServerManager | null = null;
 const server = new Server(
   {
     name: "mcp-fivem",
-    version: "0.1.0",
+    version: "0.3.0",
   },
   {
     capabilities: {
@@ -107,115 +107,143 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
   return {
     tools: [
       {
-        name: "ensure_plugin",
-        description: "Start/ensure a FiveM plugin",
+        name: "fivem_plugin_manage",
+        description: "Manage FiveM plugins (ensure/stop/restart/refresh)",
         inputSchema: {
           type: "object",
           properties: {
+            action: {
+              type: "string",
+              enum: ["ensure", "stop", "restart", "refresh"],
+              description: "Action to perform: ensure/stop/restart plugin, or refresh resources"
+            },
             plugin_name: {
               type: "string",
-              description: "Name of the plugin to ensure"
+              description: "Name of the plugin (required for ensure/stop/restart, not required for refresh)"
             }
           },
-          required: ["plugin_name"]
+          required: ["action"]
         }
       },
       {
-        name: "stop_plugin",
-        description: "Stop a FiveM plugin",
+        name: "fivem_command_execute",
+        description: "Execute FiveM commands on server or client side",
         inputSchema: {
           type: "object",
           properties: {
-            plugin_name: {
+            mode: {
               type: "string",
-              description: "Name of the plugin to stop"
+              enum: ["server", "client"],
+              description: "Execution mode: 'server' for server-side command execution, 'client' for client-side command execution"
+            },
+            command: {
+              type: "string",
+              description: "Command to execute"
+            },
+            player_id: {
+              type: "number",
+              description: "Target player ID (optional for client mode - if not provided, executes on all clients)"
             }
           },
-          required: ["plugin_name"]
+          required: ["mode", "command"]
         }
       },
       {
-        name: "restart_plugin",
-        description: "Restart a FiveM plugin",
-        inputSchema: {
-          type: "object",
-          properties: {
-            plugin_name: {
-              type: "string",
-              description: "Name of the plugin to restart"
-            }
-          },
-          required: ["plugin_name"]
-        }
-      },
-      {
-        name: "execute_command",
-        description: "Execute a raw RCON command on the server",
+        name: "fivem_rcon_execute",
+        description: "Execute direct RCON commands (low-level server management)",
         inputSchema: {
           type: "object",
           properties: {
             command: {
               type: "string",
-              description: "RCON command to execute"
+              description: "RCON command to execute directly"
             }
           },
           required: ["command"]
         }
       },
       {
-        name: "refresh_resources",
-        description: "Refresh the FiveM server resource list",
+        name: "fivem_event_trigger",
+        description: "Trigger FiveM events (server/client) via mcp-bridge plugin",
         inputSchema: {
           type: "object",
           properties: {
-            random_string: {
+            type: {
               type: "string",
-              description: "Dummy parameter for no-parameter tools"
+              enum: ["server", "client"],
+              description: "Event type: server or client"
+            },
+            event_name: {
+              type: "string",
+              description: "Name of the event to trigger"
+            },
+            player_id: {
+              type: "number",
+              description: "Target player ID (required for client events)"
+            },
+            args: {
+              type: "string",
+              description: "JSON string of arguments to pass to the event (optional)"
             }
-          }
+          },
+          required: ["type", "event_name"]
         }
       },
       {
-        name: "get_server_logs",
-        description: "Get FiveM server logs",
+        name: "fivem_player_get",
+        description: "Get player information (list/info) via mcp-bridge plugin",
         inputSchema: {
           type: "object",
           properties: {
-            lines: {
+            action: {
+              type: "string",
+              enum: ["list", "info"],
+              description: "Action: list for all players, info for specific player"
+            },
+            player_id: {
               type: "number",
-              description: "Number of lines to retrieve (default: 100)"
+              description: "Player ID (required for info action)"
             }
-          }
+          },
+          required: ["action"]
         }
       },
       {
-        name: "get_plugin_logs",
-        description: "Get FiveM plugin/script logs",
+        name: "fivem_logs_get",
+        description: "Get FiveM logs from various sources",
         inputSchema: {
           type: "object",
           properties: {
+            source: {
+              type: "string",
+              enum: ["server", "server_plugin", "client", "client_plugin"],
+              description: "Log source: server, server_plugin, client, or client_plugin"
+            },
             lines: {
               type: "number",
-              description: "Number of lines to retrieve (default: 50)"
+              description: "Number of lines to retrieve (default varies by source)"
             },
             plugin_name: {
               type: "string",
-              description: "Specific plugin name to filter logs for (optional)"
+              description: "Specific plugin name to filter logs for (optional, for plugin logs)"
             }
-          }
+          },
+          required: ["source"]
         }
       },
       {
-        name: "clear_logs",
-        description: "Clear the local operation logs",
+        name: "fivem_system_manage",
+        description: "Manage FiveM system operations (health/clear)",
         inputSchema: {
           type: "object",
           properties: {
-            random_string: {
+            action: {
               type: "string",
-              description: "Dummy parameter for no-parameter tools"
+              enum: ["health", "clear"],
+              description: "System action: health check or clear logs"
             }
-          }
+          },
+          required: ["action"]
         }
       }
     ],
@@ -228,46 +256,41 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
   try {
     switch (request.params.name) {
-      case "ensure_plugin":
+      case "fivem_plugin_manage":
         if (!serverManager) {
           throw new Error("Server manager not initialized. Server connection failed during startup.");
         }
-        return await ToolHandlers.ensurePlugin(request.params.arguments, serverManager);
-      case "stop_plugin":
+        return await ToolHandlers.pluginManage(request.params.arguments, serverManager);
+      case "fivem_command_execute":
         if (!serverManager) {
           throw new Error("Server manager not initialized. Server connection failed during startup.");
         }
-        return await ToolHandlers.stopPlugin(request.params.arguments, serverManager);
-      case "restart_plugin":
+        return await ToolHandlers.commandExecute(request.params.arguments, serverManager);
+      case "fivem_rcon_execute":
         if (!serverManager) {
           throw new Error("Server manager not initialized. Server connection failed during startup.");
         }
-        return await ToolHandlers.restartPlugin(request.params.arguments, serverManager);
-      case "execute_command":
+        return await ToolHandlers.rconExecute(request.params.arguments, serverManager);
+      case "fivem_event_trigger":
         if (!serverManager) {
           throw new Error("Server manager not initialized. Server connection failed during startup.");
         }
-        return await ToolHandlers.executeCommand(request.params.arguments, serverManager);
-      case "refresh_resources":
+        return await ToolHandlers.eventTrigger(request.params.arguments, serverManager);
+      case "fivem_player_get":
         if (!serverManager) {
           throw new Error("Server manager not initialized. Server connection failed during startup.");
         }
-        return await ToolHandlers.refreshResources(request.params.arguments, serverManager);
-      case "get_server_logs":
+        return await ToolHandlers.playerGet(request.params.arguments, serverManager);
+      case "fivem_logs_get":
         if (!serverManager) {
           throw new Error("Server manager not initialized. Server connection failed during startup.");
         }
-        return await ToolHandlers.getServerLogs(request.params.arguments, serverManager);
-      case "get_plugin_logs":
+        return await ToolHandlers.logsGet(request.params.arguments, serverManager);
+      case "fivem_system_manage":
         if (!serverManager) {
           throw new Error("Server manager not initialized. Server connection failed during startup.");
         }
-        return await ToolHandlers.getPluginLogs(request.params.arguments, serverManager);
-      case "clear_logs":
-        if (!serverManager) {
-          throw new Error("Server manager not initialized. Server connection failed during startup.");
-        }
-        return await ToolHandlers.clearLogs(request.params.arguments, serverManager);
+        return await ToolHandlers.systemManage(request.params.arguments, serverManager);
       default:
         throw new Error(`Tool not found: ${request.params.name}`);
     }
@@ -294,7 +317,8 @@ async function autoConnect(): Promise<void> {
         envConfig.host,
         envConfig.port,
         envConfig.password,
-        envConfig.logsDir
+        envConfig.logsDir,
+        envConfig.clientLogsDir
       );
       await newServerManager.connect();
       serverManager = newServerManager;

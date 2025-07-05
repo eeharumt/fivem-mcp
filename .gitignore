@@ -1,40 +1,63 @@
-# Dependencies
+# ==================================================
+# MCP-FiveM Project .gitignore
+# TypeScript + Node.js + FiveM + MCP Development
+# ==================================================
+
+# ----- Node.js Dependencies -----
 node_modules/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
+lerna-debug.log*
 
-# Build output
+# ----- Build Output -----
 build/
 dist/
 lib/
 out/
+.output/
+.nuxt/
+.next/
 
-# TypeScript
+# ----- TypeScript -----
 *.tsbuildinfo
 *.d.ts.map
+.tscache/
 
-# Environment files
+# ----- Environment Variables -----
 .env
-.env.local
-.env.development.local
-.env.test.local
-.env.production.local
+.env.*
+!.env.example
+.envrc
 
-# Logs
+# ----- Logs -----
 logs/
 *.log
 log-*.txt
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
 
-# Runtime data
+# ----- Runtime Data -----
 pids/
 *.pid
 *.seed
 *.pid.lock
+.grunt/
 
-# IDE/Editor files
+# ----- Test Coverage -----
+coverage/
+.nyc_output/
+.c8/
+*.lcov
+
+# ----- IDE/Editor Files -----
 .vscode/
+!.vscode/extensions.json
+!.vscode/settings.json
 .idea/
 *.swp
 *.swo
@@ -42,8 +65,10 @@ pids/
 .project
 .classpath
 .settings/
+*.sublime-project
+*.sublime-workspace
 
-# OS generated files
+# ----- OS Generated Files -----
 .DS_Store
 .DS_Store?
 ._*
@@ -52,8 +77,10 @@ pids/
 ehthumbs.db
 Thumbs.db
 desktop.ini
+$RECYCLE.BIN/
 
-# FiveM specific
+# ----- FiveM Specific -----
+# Server Files
 txData/
 cache/
 citizen/
@@ -63,26 +90,108 @@ fxserver.exe
 FXServer.exe
 run.cmd
 run.sh
+start.bat
+start.sh
 
-# MCP specific
+# FiveM Logs
+fxserver.log
+server.log
+console.log
+scriptlog_*.txt
+
+# FiveM Cache
+citizen/cache/
+citizen/scripting/
+citizen/system_resources/
+
+# ----- MCP Specific -----
 .mcp/
 mcp-logs/
+.mcp.json
+.mcp.json.bak
+inspector-*.json
 
-# Test coverage
-coverage/
-.nyc_output/
-
-# Temporary files
+# ----- Temporary Files -----
 tmp/
 temp/
 *.tmp
 *.temp
+.cache/
 
-# Package manager lockfiles (keep pnpm-lock.yaml but ignore others)
+# ----- Package Manager Files -----
+# Keep pnpm-lock.yaml for reproducible builds
 package-lock.json
 yarn.lock
+.pnpm-store/
 
-# Backup files
+# ----- Backup Files -----
 *.bak
 *.backup
 *~
+*.orig
+
+# ----- Development Tools -----
+.eslintcache
+.stylelintcache
+.prettierignore
+*.tgz
+*.tar.gz
+
+# ----- Debug Files -----
+*.map
+.vscode/launch.json
+chrome-debug-*.log
+
+# ----- Local Configuration -----
+config/local.json
+config/local.js
+local.json
+local.js
+
+# ----- Security -----
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+secrets/
+
+# ----- Documentation Build -----
+docs/.vuepress/dist/
+docs/.vitepress/dist/
+
+# ----- Miscellaneous -----
+.sass-cache/
+.connect.lock
+.grunt/
+.eslintcache
+*.tsbuildinfo
+.npm
+.node_repl_history
+.pnpm-debug.log*
+.yarn-integrity
+.yarn/cache/
+.yarn/unplugged/
+.yarn/build-state.yml
+.yarn/install-state.gz
+.pnp.*
+
+# ----- Project Specific -----
+# Test files that shouldn't be committed
+test-*.js
+debug-*.js
+*.test.local.*
+
+# Development process files
+CLAUDE.md
+plan.md
+dev-notes.md
+todo.md
+
+# Local FiveM development
+/local-server/
+/test-server/
+
+# Generated documentation
+/docs/api/
+/docs/build/

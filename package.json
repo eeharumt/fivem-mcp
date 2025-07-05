@@ -1,7 +1,7 @@
 {
   "name": "mcp-fivem-server",
-  "version": "0.1.0",
-  "description": "A Model Context Protocol server for FiveM plugin development",
+  "version": "0.3.0",
+  "description": "A Model Context Protocol server for FiveM plugin development with server/client command execution",
   "license": "MIT",
   "keywords": [
     "mcp",
@@ -25,7 +25,8 @@
     "build": "tsc && node -e \"require('fs').chmodSync('build/index.js', '755')\"",
     "prepare": "npm run build",
     "watch": "tsc --watch",
-    "inspector": "npx @modelcontextprotocol/inspector build/index.js"
+    "inspector": "npx @modelcontextprotocol/inspector build/index.js",
+    "sync": "rsync -av --delete fivem-plugin/mcp-bridge/ /home/eeharumt/NeoLumina/fivem-server/local/txData/lumina/resources/[plugins]/[others]/mcp-bridge/ && echo '✅ FiveMプラグイン同期完了！'"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "0.6.0"
