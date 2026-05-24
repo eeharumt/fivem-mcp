@@ -4,7 +4,13 @@
 -- Command: mcp_execute <command>
 -- Execute a FiveM console command
 RegisterCommand('mcp_execute', function(source, args, rawCommand)
-    if source ~= 0 then -- Only allow from console/RCON
+    if source ~= 0 then
+        return
+    end
+
+    local allowed, errMessage = assertBridgeOperationAllowed('execute')
+    if not allowed then
+        print(errMessage)
         return
     end
     
@@ -13,8 +19,14 @@ RegisterCommand('mcp_execute', function(source, args, rawCommand)
         print(formatError('Command is required'))
         return
     end
+
+    local cmdAllowed, cmdErr = isCommandAllowed(command)
+    if not cmdAllowed then
+        print(formatError(cmdErr or 'Command is not allowed', { command = command }))
+        return
+    end
     
-    mcpLog('info', 'Executing command via RCON', { command = command })
+    auditMcpOperation('execute_command', { command = command })
     
     -- Check if command exists by attempting to validate it first
     local commandPart = string.match(command, "^(%S+)")
@@ -62,7 +74,13 @@ end, true) -- Restricted to console
 -- Command: mcp_event_server <event_name> [json_args]
 -- Trigger a server-side event
 RegisterCommand('mcp_event_server', function(source, args, rawCommand)
-    if source ~= 0 then -- Only allow from console/RCON
+    if source ~= 0 then
+        return
+    end
+
+    local allowed, errMessage = assertBridgeOperationAllowed('event_server')
+    if not allowed then
+        print(errMessage)
         return
     end
     
@@ -71,28 +89,20 @@ RegisterCommand('mcp_event_server', function(source, args, rawCommand)
         print(formatError('Event name is required'))
         return
     end
+
+    local eventAllowed, eventErr = isEventAllowed(eventName)
+    if not eventAllowed then
+        print(formatError(eventErr or 'Event is not allowed', { event_name = eventName }))
+        return
+    end
     
     local eventArgs = {}
     if args[2] then
-        -- Reconstruct the JSON string from all remaining arguments
         local jsonString = table.concat(args, ' ', 2)
-        
-        -- Debug: Log the raw JSON string for server event
-        mcpLog('debug', 'Server event raw JSON string', { raw_json = jsonString })
-        
-        eventArgs = decodeJsonSafe(jsonString)
-        if not eventArgs then
-            mcpLog('warn', 'Failed to decode server event JSON arguments, using empty args', { raw_json = jsonString })
-            eventArgs = {}
-        else
-            mcpLog('debug', 'Successfully decoded server event JSON arguments', { decoded_args = eventArgs })
-        end
+        eventArgs = unpackEventArgs(decodeJsonSafe(jsonString))
     end
     
-    mcpLog('info', 'Triggering server event via RCON', { 
-        event = eventName, 
-        args = eventArgs 
-    })
+    auditMcpOperation('event_server', { event = eventName, args = eventArgs })
     
     local success = pcall(function()
         if #eventArgs > 0 then
@@ -115,7 +125,13 @@ end, true) -- Restricted to console
 -- Command: mcp_event_client <player_id> <event_name> [json_args]
 -- Trigger a client-side event
 RegisterCommand('mcp_event_client', function(source, args, rawCommand)
-    if source ~= 0 then -- Only allow from console/RCON
+    if source ~= 0 then
+        return
+    end
+
+    local allowed, errMessage = assertBridgeOperationAllowed('event_client')
+    if not allowed then
+        print(errMessage)
         return
     end
     
@@ -131,6 +147,12 @@ RegisterCommand('mcp_event_client', function(source, args, rawCommand)
         print(formatError('Event name is required'))
         return
     end
+
+    local eventAllowed, eventErr = isEventAllowed(eventName)
+    if not eventAllowed then
+        print(formatError(eventErr or 'Event is not allowed', { event_name = eventName }))
+        return
+    end
     
     if not isPlayerOnline(playerId) then
         print(formatError('Player is not online', { player_id = playerId }))
@@ -139,25 +161,14 @@ RegisterCommand('mcp_event_client', function(source, args, rawCommand)
     
     local eventArgs = {}
     if args[3] then
-        -- Reconstruct the JSON string from all remaining arguments
         local jsonString = table.concat(args, ' ', 3)
-        
-        -- Debug: Log the raw JSON string
-        mcpLog('debug', 'Raw JSON string content', { raw_json = jsonString })
-        
-        eventArgs = decodeJsonSafe(jsonString)
-        if not eventArgs then
-            mcpLog('warn', 'Failed to decode JSON arguments, using empty args', { raw_json = jsonString })
-            eventArgs = {}
-        else
-            mcpLog('debug', 'Successfully decoded JSON arguments', { decoded_args = eventArgs })
-        end
+        eventArgs = unpackEventArgs(decodeJsonSafe(jsonString))
     end
     
-    mcpLog('info', 'Triggering client event via RCON', { 
-        event = eventName, 
+    auditMcpOperation('event_client', {
+        event = eventName,
         player_id = playerId,
-        args = eventArgs 
+        args = eventArgs,
     })
     
     local success = pcall(function()
@@ -182,78 +193,8 @@ RegisterCommand('mcp_event_client', function(source, args, rawCommand)
     end
 end, true) -- Restricted to console
 
--- Command: mcp_client_command <player_id> <command>
--- Execute a command on a specific client
-RegisterCommand('mcp_client_command', function(source, args, rawCommand)
-    if source ~= 0 then -- Only allow from console/RCON
-        return
-    end
-    
-    local playerId = tonumber(args[1])
-    if not playerId then
-        print(formatError('Player ID is required'))
-        return
-    end
-    
-    if not isPlayerOnline(playerId) then
-        print(formatError('Player is not online', { player_id = playerId }))
-        return
-    end
-    
-    local command = table.concat(args, ' ', 2)
-    if not command or command == '' then
-        print(formatError('Command is required'))
-        return
-    end
-    
-    mcpLog('info', 'Executing client command via RCON', { 
-        player_id = playerId, 
-        command = command 
-    })
-    
-    -- Trigger client-side command execution
-    TriggerClientEvent('mcp:executeClientCommand', playerId, command)
-    
-    print(formatSuccess({ 
-        player_id = playerId, 
-        command = command 
-    }, 'Client command sent successfully'))
-end, true) -- Restricted to console
-
--- Command: mcp_client_command_all <command>
--- Execute a command on all connected clients
-RegisterCommand('mcp_client_command_all', function(source, args, rawCommand)
-    if source ~= 0 then -- Only allow from console/RCON
-        return
-    end
-    
-    local command = table.concat(args, ' ')
-    if not command or command == '' then
-        print(formatError('Command is required'))
-        return
-    end
-    
-    local players = GetPlayers()
-    local onlineCount = 0
-    
-    for _, playerId in ipairs(players) do
-        local id = tonumber(playerId)
-        if isPlayerOnline(id) then
-            onlineCount = onlineCount + 1
-            TriggerClientEvent('mcp:executeClientCommand', id, command)
-        end
-    end
-    
-    mcpLog('info', 'Executing client command on all players via RCON', { 
-        command = command,
-        players_count = onlineCount
-    })
-    
-    print(formatSuccess({ 
-        command = command,
-        players_affected = onlineCount 
-    }, 'Client command sent to all players successfully'))
-end, true) -- Restricted to console
+-- mcp_client_command, mcp_client_command_all, mcp_event_client_ack, mcp_async_poll
+-- are registered in server/client_command.lua
 
 -- Command: mcp_players
 -- Get list of online players
@@ -305,19 +246,12 @@ RegisterCommand('mcp_player_info', function(source, args, rawCommand)
         return
     end
     
-    local playerInfo = {
-        id = playerId,
-        name = GetPlayerName(playerId),
-        ping = GetPlayerPing(playerId),
-        endpoint = GetPlayerEndpoint(playerId),
-        identifiers = GetPlayerIdentifiers(playerId),
-        tokens = GetPlayerTokens(playerId),
-        last_msg = GetPlayerLastMsg(playerId)
-    }
+    local playerInfo = buildPlayerInfo(playerId, shouldIncludePlayerTokens())
     
-    mcpLog('info', 'Retrieved player info via RCON', { 
+    auditMcpOperation('player_info', {
         player_id = playerId,
-        player_name = playerInfo.name
+        player_name = playerInfo.name,
+        include_tokens = shouldIncludePlayerTokens(),
     })
     
     print(formatSuccess(playerInfo, 'Player information retrieved'))
@@ -335,160 +269,18 @@ RegisterCommand('mcp_health', function(source, args, rawCommand)
         uptime = GetGameTimer(),
         players_online = #GetPlayers(),
         resource_name = GetCurrentResourceName(),
-        version = '2.0.0',
-        method = 'RCON Commands'
+        version = '2.2.0',
+        method = 'RCON Commands',
+        bridge_enabled = isMcpBridgeEnabled(),
+        player_control_allowed = isPlayerControlAllowed(),
     }
     
     print(formatSuccess(healthInfo, 'MCP Bridge is running'))
 end, true) -- Restricted to console
 
--- Command: mcp_client_execute <player_id> <command> [args]
--- Execute a client-side command on a specific player's client
-RegisterCommand('mcp_client_execute', function(source, args, rawCommand)
-    if source ~= 0 then -- Only allow from console/RCON
-        return
-    end
-    
-    local playerId = tonumber(args[1])
-    local command = args[2]
-    
-    if not playerId then
-        print(formatError('Player ID is required'))
-        return
-    end
-    
-    if not command then
-        print(formatError('Command is required'))
-        return
-    end
-    
-    if not isPlayerOnline(playerId) then
-        print(formatError('Player is not online', { player_id = playerId }))
-        return
-    end
-    
-    -- Get additional arguments if provided
-    local cmdArgs = {}
-    for i = 3, #args do
-        table.insert(cmdArgs, args[i])
-    end
-    
-    mcpLog('info', 'Executing client command via RCON', { 
-        player_id = playerId,
-        command = command,
-        args = cmdArgs
-    })
-    
-    local success = pcall(function()
-        TriggerClientEvent('mcp:executeClientCommand', playerId, command, cmdArgs)
-    end)
-    
-    if success then
-        print(formatSuccess({ 
-            player_id = playerId,
-            command = command,
-            args = cmdArgs
-        }, 'Client command sent successfully'))
-    else
-        print(formatError('Failed to send client command', { 
-            player_id = playerId,
-            command = command 
-        }))
-    end
-end, true) -- Restricted to console
+-- mcp_client_execute and async client commands are registered in server/register_async_commands.lua
 
--- Command: mcp_client_command <player_id> <command_type> [message]
--- Execute specific client-side commands (me, do, ooc, dv, dvall, fix, engine)
-RegisterCommand('mcp_client_command', function(source, args, rawCommand)
-    if source ~= 0 then -- Only allow from console/RCON
-        return
-    end
-    
-    local playerId = tonumber(args[1])
-    local commandType = args[2]
-    
-    if not playerId then
-        print(formatError('Player ID is required'))
-        return
-    end
-    
-    if not commandType then
-        print(formatError('Command type is required'))
-        return
-    end
-    
-    if not isPlayerOnline(playerId) then
-        print(formatError('Player is not online', { player_id = playerId }))
-        return
-    end
-    
-    -- Valid command types
-    local validCommands = {
-        'me', 'do', 'ooc', 'dv', 'dvall', 'fix', 'engine'
-    }
-    
-    local isValidCommand = false
-    for _, cmd in ipairs(validCommands) do
-        if cmd == commandType then
-            isValidCommand = true
-            break
-        end
-    end
-    
-    if not isValidCommand then
-        print(formatError('Invalid command type', { 
-            command_type = commandType,
-            valid_commands = validCommands
-        }))
-        return
-    end
-    
-    -- Prepare parameters
-    local params = {}
-    
-    -- Commands that need a message
-    if commandType == 'me' or commandType == 'do' or commandType == 'ooc' then
-        local message = ''
-        for i = 3, #args do
-            if i > 3 then
-                message = message .. ' '
-            end
-            message = message .. args[i]
-        end
-        
-        if message == '' then
-            print(formatError('Message is required for ' .. commandType .. ' command'))
-            return
-        end
-        
-        params.message = message
-    end
-    
-    mcpLog('info', 'Executing specific client command via RCON', { 
-        player_id = playerId,
-        command_type = commandType,
-        params = params
-    })
-    
-    local success = pcall(function()
-        TriggerClientEvent('mcp:executeSpecificClientCommand', playerId, commandType, params)
-    end)
-    
-    if success then
-        print(formatSuccess({ 
-            player_id = playerId,
-            command_type = commandType,
-            params = params
-        }, 'Specific client command sent successfully'))
-    else
-        print(formatError('Failed to send specific client command', { 
-            player_id = playerId,
-            command_type = commandType 
-        }))
-    end
-end, true) -- Restricted to console
-
--- Event handlers for client command feedback
+-- Legacy feedback handlers retained for older clients
 RegisterServerEvent('mcp:clientCommandExecuted')
 AddEventHandler('mcp:clientCommandExecuted', function(command, success)
     local playerId = source
@@ -508,4 +300,168 @@ AddEventHandler('mcp:specificClientCommandExecuted', function(playerId, commandT
         success = success,
         message = message
     })
-end) 
+end)
+
+-- mcp_player_control is registered in server/player_control.lua
+
+local function wireAsyncClientCommandHandlers()
+    local dispatchFn = dispatchClientCommand
+    local dispatchEventAckFn = dispatchClientEventAck
+    local pollFn = pollPendingRequest
+
+    if type(dispatchFn) ~= 'function' then
+        error('dispatchClientCommand is unavailable while wiring async RCON handlers')
+    end
+
+    RegisterCommand('mcp_client_execute', function(source, args, rawCommand)
+        if source ~= 0 then
+            return
+        end
+
+        local playerId = tonumber(args[1])
+        local command = args[2]
+
+        if not playerId then
+            print(formatError('Player ID is required'))
+            return
+        end
+
+        if not command then
+            print(formatError('Command is required'))
+            return
+        end
+
+        local cmdArgs = {}
+        for i = 3, #args do
+            table.insert(cmdArgs, args[i])
+        end
+
+        print(dispatchFn(playerId, command, nil, nil, cmdArgs))
+    end, true)
+
+    RegisterCommand('mcp_client_command', function(source, args, rawCommand)
+        if source ~= 0 then
+            return
+        end
+
+        local playerId = tonumber(args[1])
+        if not playerId then
+            print(formatError('Player ID is required'))
+            return
+        end
+
+        local command = table.concat(args, ' ', 2)
+        if not command or command == '' then
+            print(formatError('Command is required'))
+            return
+        end
+
+        local commandType = string.match(command, '^(%S+)')
+        local specialCommands = {
+            me = true,
+            ['do'] = true,
+            ooc = true,
+            dv = true,
+            dvall = true,
+            fix = true,
+            engine = true,
+        }
+
+        if specialCommands[commandType] then
+            local params = {}
+            if commandType == 'me' or commandType == 'do' or commandType == 'ooc' then
+                local message = string.match(command, '^%S+%s+(.+)')
+                if message then
+                    params.message = message
+                end
+            end
+
+            print(dispatchFn(playerId, command, commandType, params))
+            return
+        end
+
+        print(dispatchFn(playerId, command, nil, nil))
+    end, true)
+
+    RegisterCommand('mcp_client_command_all', function(source, args, rawCommand)
+        if source ~= 0 then
+            return
+        end
+
+        local allowed, errMessage = assertBridgeOperationAllowed('client_command_all')
+        if not allowed then
+            print(errMessage)
+            return
+        end
+
+        local command = table.concat(args, ' ')
+        if not command or command == '' then
+            print(formatError('Command is required'))
+            return
+        end
+
+        local cmdAllowed, cmdErr = isCommandAllowed(command)
+        if not cmdAllowed then
+            print(formatError(cmdErr or 'Command is not allowed', { command = command }))
+            return
+        end
+
+        local players = GetPlayers()
+        local dispatched = {}
+
+        for _, playerId in ipairs(players) do
+            local id = tonumber(playerId)
+            if isPlayerOnline(id) then
+                local responseJson = dispatchFn(id, command, nil, nil)
+                table.insert(dispatched, { player_id = id, response = decodeJsonSafe(responseJson) })
+            end
+        end
+
+        auditMcpOperation('client_command_all_dispatch', {
+            command = command,
+            players_count = #dispatched,
+        })
+
+        print(formatSuccess({
+            command = command,
+            players_affected = #dispatched,
+            dispatched = dispatched,
+        }, 'Client command dispatched to all players'))
+    end, true)
+
+    RegisterCommand('mcp_event_client_ack', function(source, args, rawCommand)
+        if source ~= 0 then
+            return
+        end
+
+        local playerId = tonumber(args[1])
+        local eventName = args[2]
+
+        if not playerId then
+            print(formatError('Player ID is required'))
+            return
+        end
+
+        if not eventName then
+            print(formatError('Event name is required'))
+            return
+        end
+
+        local eventArgs = nil
+        if args[3] then
+            eventArgs = decodeJsonSafe(table.concat(args, ' ', 3))
+        end
+
+        print(dispatchEventAckFn(playerId, eventName, eventArgs))
+    end, true)
+
+    RegisterCommand('mcp_async_poll', function(source, args, rawCommand)
+        if source ~= 0 then
+            return
+        end
+
+        print(pollFn(args[1]))
+    end, true)
+end
+
+wireAsyncClientCommandHandlers()

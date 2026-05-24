@@ -1,5 +1,76 @@
 import * as fs from 'fs';
+import * as fsPromises from 'fs/promises';
 import * as path from 'path';
+
+/**
+ * Simple cache for log file metadata and recent reads
+ */
+interface LogCacheEntry {
+  filePath: string;
+  lastModified: number;
+  lastReadLines: number;
+  cachedContent: string[];
+  cacheTime: number;
+}
+
+class LogCache {
+  private cache: Map<string, LogCacheEntry> = new Map();
+  private readonly CACHE_TTL = 5000; // 5 seconds cache TTL
+
+  get(filePath: string, lines: number): string[] | null {
+    const entry = this.cache.get(filePath);
+    if (!entry) return null;
+
+    const now = Date.now();
+    if (now - entry.cacheTime > this.CACHE_TTL) {
+      this.cache.delete(filePath);
+      return null;
+    }
+
+    // Check if file was modified
+    try {
+      const stats = fs.statSync(filePath);
+      if (stats.mtime.getTime() !== entry.lastModified) {
+        this.cache.delete(filePath);
+        return null;
+      }
+    } catch {
+      this.cache.delete(filePath);
+      return null;
+    }
+
+    // Return cached content if it has enough lines
+    if (entry.cachedContent.length >= lines) {
+      return entry.cachedContent.slice(-lines);
+    }
+
+    return null;
+  }
+
+  set(filePath: string, lines: number, content: string[]): void {
+    const stats = fs.statSync(filePath);
+    this.cache.set(filePath, {
+      filePath,
+      lastModified: stats.mtime.getTime(),
+      lastReadLines: lines,
+      cachedContent: content,
+      cacheTime: Date.now()
+    });
+
+    // Limit cache size (keep only 10 most recent entries)
+    if (this.cache.size > 10) {
+      const oldestKey = Array.from(this.cache.entries())
+        .sort((a, b) => a[1].cacheTime - b[1].cacheTime)[0][0];
+      this.cache.delete(oldestKey);
+    }
+  }
+
+  clear(): void {
+    this.cache.clear();
+  }
+}
+
+const logCache = new LogCache();
 
 /**
  * Log file reading utilities for FiveM server logs
@@ -211,17 +282,63 @@ export class LogFileReader {
   }
 
   /**
-   * Read last N lines from a log file (like tail -n)
+   * Read last N lines from a log file efficiently (like tail -n)
+   * Optimized for large files by reading from the end
    */
   static async readLogFileLines(filePath: string, lines: number, filter?: string): Promise<string | null> {
     try {
-      const stats = fs.statSync(filePath);
+      const stats = await fsPromises.stat(filePath);
       if (stats.size === 0) {
         return null;
       }
 
-      const data = fs.readFileSync(filePath, 'utf8');
-      let allLines = data.split('\n').filter(line => line.trim() !== '');
+      // Check cache first
+      const cachedLines = logCache.get(filePath, lines);
+      if (cachedLines) {
+        let result = cachedLines;
+        if (filter) {
+          const filterLower = filter.toLowerCase();
+          result = result.filter(line => line.toLowerCase().includes(filterLower));
+        }
+        return result.length > 0 ? result.join('\n') : null;
+      }
+
+      // For small files (< 1MB), read entire file
+      // For large files, read from the end
+      const MAX_FULL_READ_SIZE = 1024 * 1024; // 1MB
+      let fileContent: string;
+      let allLines: string[];
+
+      if (stats.size < MAX_FULL_READ_SIZE) {
+        // Small file: read entire content
+        fileContent = await fsPromises.readFile(filePath, 'utf8');
+        allLines = fileContent.split('\n');
+      } else {
+        // Large file: read from the end
+        // Estimate bytes needed (assuming ~100 chars per line)
+        const estimatedBytes = lines * 200; // Conservative estimate
+        const readSize = Math.min(estimatedBytes * 2, stats.size);
+        
+        const fileHandle = await fsPromises.open(filePath, 'r');
+        const buffer = Buffer.alloc(readSize);
+        const { bytesRead } = await fileHandle.read(
+          buffer,
+          0,
+          readSize,
+          Math.max(0, stats.size - readSize)
+        );
+        await fileHandle.close();
+
+        fileContent = buffer.toString('utf8', 0, bytesRead);
+        // If we didn't read from the start, prepend "..." to indicate truncation
+        if (stats.size > readSize) {
+          fileContent = '...\n' + fileContent;
+        }
+        allLines = fileContent.split('\n');
+      }
+
+      // Filter empty lines
+      allLines = allLines.filter(line => line.trim() !== '');
       
       // Apply filter if provided
       if (filter) {
@@ -234,6 +351,11 @@ export class LogFileReader {
       // Get last N lines
       const lastLines = allLines.slice(-lines);
       
+      // Cache the result (before filtering)
+      if (!filter && lastLines.length > 0) {
+        logCache.set(filePath, lines, allLines.slice(-lines * 2)); // Cache more lines for future use
+      }
+      
       if (lastLines.length === 0) {
         return null;
       }
@@ -242,6 +364,13 @@ export class LogFileReader {
     } catch (error) {
       throw error;
     }
+  }
+
+  /**
+   * Clear log cache (useful for testing or manual cache invalidation)
+   */
+  static clearCache(): void {
+    logCache.clear();
   }
 
   /**
@@ -283,12 +412,18 @@ export class LogFileReader {
 
       for (const logPath of logPaths) {
         try {
-          const pluginContent = await LogFileReader.readLogFileLines(logPath, lines * 3, pluginName ? `script:${pluginName}` : 'script:');
+          const pluginContent = await LogFileReader.readLogFileLines(logPath, lines * 5, 'script:');
           if (pluginContent) {
             const fileName = path.basename(logPath);
             const filteredLines = pluginContent.split('\n').filter(line => {
               if (pluginName) {
-                return line.includes(`script:${pluginName}`);
+                // More flexible plugin name matching
+                return line.includes('script:') && (
+                  line.includes(`script:${pluginName}`) ||
+                  line.includes(`script:${pluginName.replace(/lumina-/, '')}`) ||
+                  line.includes(`script:${pluginName.split('-')[0]}`) ||
+                  line.includes(pluginName.replace(/lumina-/, ''))
+                );
               }
               return line.includes('script:');
             }).slice(-lines); // 最新のlines行数だけ取得
@@ -539,12 +674,22 @@ export class LogFileReader {
             
             if (pluginName) {
               const lowerPluginName = pluginName.toLowerCase();
+              const shortPluginName = lowerPluginName.replace(/lumina-/, '');
+              const basePluginName = lowerPluginName.split('-')[0];
+              
               return lowerLine.includes(lowerPluginName) || 
+                     lowerLine.includes(shortPluginName) ||
+                     lowerLine.includes(basePluginName) ||
                      lowerLine.includes(`[${lowerPluginName}]`) ||
+                     lowerLine.includes(`[${shortPluginName}]`) ||
                      lowerLine.includes(`(${lowerPluginName})`) ||
+                     lowerLine.includes(`(${shortPluginName})`) ||
                      lowerLine.includes(`${lowerPluginName}:`) ||
+                     lowerLine.includes(`${shortPluginName}:`) ||
                      lowerLine.includes(`script:${lowerPluginName}`) ||
-                     lowerLine.includes(`resource:${lowerPluginName}`);
+                     lowerLine.includes(`script:${shortPluginName}`) ||
+                     lowerLine.includes(`resource:${lowerPluginName}`) ||
+                     lowerLine.includes(`resource:${shortPluginName}`);
             }
             
             // General plugin/script patterns

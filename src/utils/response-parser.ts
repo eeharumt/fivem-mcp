@@ -4,6 +4,23 @@ import { MCPResponse, ErrorCodes } from '../types/index.js';
  * Response parser for FiveM RCON commands
  */
 export class ResponseParser {
+  private static readonly DEBUG_ENABLED = process.env.MCP_FIVEM_DEBUG === 'true';
+  private static readonly KNOWN_UNSUPPORTED_COMMANDS = new Set([
+    'status',
+    'list',
+    'resmon',
+    'resource',
+    'uptime'
+  ]);
+  
+  /**
+   * Log debug message if debugging is enabled
+   */
+  private static debugLog(message: string): void {
+    if (this.DEBUG_ENABLED) {
+      console.error(`[MCP-FiveM DEBUG] ${message}`);
+    }
+  }
   
   /**
    * Parse RCON response and determine if it was successful
@@ -11,22 +28,22 @@ export class ResponseParser {
   static parseRCONResponse(response: string, command: string): MCPResponse {
     const trimmedResponse = response.trim();
     
-    console.log(`[DEBUG] Parsing response for command: ${command}`);
-    console.log(`[DEBUG] Response: ${trimmedResponse}`);
+    this.debugLog(`Parsing response for command: ${command}`);
+    this.debugLog(`Response: ${trimmedResponse}`);
     
     // Check for common error patterns
     if (this.isErrorResponse(trimmedResponse)) {
-      console.log(`[DEBUG] Detected error response`);
+      this.debugLog(`Detected error response`);
       return this.createErrorResponse(trimmedResponse, command);
     }
     
     // Check for plugin-specific responses
     if (this.isPluginResponse(trimmedResponse)) {
-      console.log(`[DEBUG] Detected plugin response`);
+      this.debugLog(`Detected plugin response`);
       return this.parsePluginResponse(trimmedResponse, command);
     }
     
-    console.log(`[DEBUG] Using default success case`);
+    this.debugLog(`Using default success case`);
     // Default success case
     return {
       success: true,
@@ -56,8 +73,18 @@ export class ResponseParser {
       /^Plugin .* not found/i,
       /argument.*null/i,
       /^nil$/i,
-      /^false$/i
+      /^false$/i,
+      /^usage:/i,
+      /^Syntax error/i,
+      /^Missing argument/i,
+      /^Invalid argument/i,
+      /^Bad rcon/i
     ];
+    
+    // Check for empty or whitespace-only responses (often indicate failure)
+    if (!response || response.trim().length === 0) {
+      return false; // Empty responses are not necessarily errors
+    }
     
     return errorPatterns.some(pattern => pattern.test(response));
   }
@@ -73,76 +100,103 @@ export class ResponseParser {
   }
   
   /**
+   * Extract the plugin's structured JSON payload from mixed RCON output.
+   */
+  static extractPluginJson(response: string): Record<string, unknown> | null {
+    const cleanResponse = response.replace(/^print\s+/i, '').trim();
+    const candidates: Record<string, unknown>[] = [];
+
+    for (let i = 0; i < cleanResponse.length; i += 1) {
+      if (cleanResponse[i] !== '{') {
+        continue;
+      }
+
+      let depth = 0;
+      for (let j = i; j < cleanResponse.length; j += 1) {
+        const ch = cleanResponse[j];
+        if (ch === '{') {
+          depth += 1;
+        }
+        if (ch === '}') {
+          depth -= 1;
+        }
+
+        if (depth === 0) {
+          const snippet = cleanResponse.slice(i, j + 1);
+          try {
+            candidates.push(JSON.parse(snippet) as Record<string, unknown>);
+          } catch {
+            // Ignore malformed fragments.
+          }
+          break;
+        }
+      }
+    }
+
+    for (let i = candidates.length - 1; i >= 0; i -= 1) {
+      if (typeof candidates[i].success === 'boolean') {
+        return candidates[i];
+      }
+    }
+
+    return null;
+  }
+
+  /**
    * Parse plugin-specific responses
    */
   private static parsePluginResponse(response: string, command: string): MCPResponse {
     try {
-      console.log(`[DEBUG] Parsing plugin response`);
+      this.debugLog(`Parsing plugin response`);
       
-      // Remove "print" prefix from response for cleaner parsing
       const cleanResponse = response.replace(/^print\s+/i, '').trim();
       
-      // Check for command execution failures before JSON parsing
       if (cleanResponse.includes('No such command') || 
           cleanResponse.includes('Unknown command') ||
           cleanResponse.includes('Command not found')) {
-        console.log(`[DEBUG] Found command failure pattern in plugin response`);
+        this.debugLog(`Found command failure pattern in plugin response`);
         return this.createErrorResponse(response, command);
       }
-      
-      // Try to extract JSON from response
-      const jsonMatch = cleanResponse.match(/\{.*\}/);
-      if (jsonMatch) {
-        console.log(`[DEBUG] Found JSON in plugin response: ${jsonMatch[0]}`);
-        try {
-          const jsonData = JSON.parse(jsonMatch[0]);
-          
-          // For plugin responses with JSON, trust the plugin's success field
-          // Only check for explicit command failure messages
-          const hasCommandFailure = cleanResponse.includes('No such command') || 
-                                   cleanResponse.includes('Unknown command') ||
-                                   cleanResponse.includes('Command not found');
-          
-          console.log(`[DEBUG] Plugin JSON success: ${jsonData.success}, Has command failure: ${hasCommandFailure}`);
-          
-          // Use plugin's success field unless there's an explicit command failure
-          const actualSuccess = !hasCommandFailure && (jsonData.success !== false);
-          console.log(`[DEBUG] Actual success determined: ${actualSuccess}`);
-          
-          return {
-            success: actualSuccess,
-            message: actualSuccess ? (jsonData.message || 'Plugin command executed successfully') : 'Command execution failed',
-            data: jsonData.data || { response, command },
-            error: !actualSuccess ? {
-              code: this.determineErrorCode(response),
-              message: this.extractErrorMessage(response),
-              details: { response, command }
-            } : undefined
-          };
-        } catch (parseError) {
-          console.log(`[DEBUG] JSON parse error: ${parseError}`);
-          // If JSON parsing fails but we found JSON-like content, assume success
-          return {
-            success: true,
-            message: 'Plugin command executed (JSON parse error)',
-            data: { response, command }
-          };
-        }
+
+      const jsonData = this.extractPluginJson(response);
+      if (jsonData) {
+        this.debugLog(`Found JSON in plugin response`);
+        const hasCommandFailure = cleanResponse.includes('No such command') || 
+                                 cleanResponse.includes('Unknown command') ||
+                                 cleanResponse.includes('Command not found');
+        
+        const hasErrorField = jsonData.error !== undefined && jsonData.error !== null;
+        const actualSuccess = !hasCommandFailure && !hasErrorField && (jsonData.success !== false);
+        
+        const errorField = jsonData.error as { code?: string; message?: string; details?: Record<string, unknown> } | undefined;
+
+        return {
+          success: actualSuccess,
+          message: actualSuccess 
+            ? (String(jsonData.message || 'Plugin command executed successfully'))
+            : (errorField?.message || String(jsonData.message || 'Command execution failed')),
+          data: (jsonData.data as Record<string, unknown> | undefined) || { response, command },
+          error: !actualSuccess ? {
+            code: errorField?.code || this.determineErrorCode(response),
+            message: errorField?.message || this.extractErrorMessage(response),
+            details: { response, command, ...errorField?.details }
+          } : undefined
+        };
       }
       
       // Check for plugin error indicators
-      if (response.includes('[ERROR]') || response.includes('ERROR:')) {
-        console.log(`[DEBUG] Found ERROR indicator in plugin response`);
+      if (response.includes('[ERROR]') || response.includes('ERROR:') || response.includes('[MCP-Bridge ERROR]')) {
+        this.debugLog(`Found ERROR indicator in plugin response`);
         return this.createErrorResponse(response, command);
       }
       
       // Check for command failures in the output
       if (this.isErrorResponse(response)) {
-        console.log(`[DEBUG] Error response detected in plugin output`);
+        this.debugLog(`Error response detected in plugin output`);
         return this.createErrorResponse(response, command);
       }
       
-      console.log(`[DEBUG] Default plugin success`);
+      this.debugLog(`Default plugin success`);
       // Default plugin success
       return {
         success: true,
@@ -150,8 +204,8 @@ export class ResponseParser {
         data: { response, command }
       };
     } catch (error) {
-      console.log(`[DEBUG] Exception in plugin parsing: ${error}`);
-      // If JSON parsing fails, check for errors in raw response
+      this.debugLog(`Exception in plugin parsing: ${error}`);
+      // If parsing fails, check for errors in raw response
       if (this.isErrorResponse(response)) {
         return this.createErrorResponse(response, command);
       }
@@ -186,25 +240,27 @@ export class ResponseParser {
    * Determine error code based on response
    */
   private static determineErrorCode(response: string): string {
-    if (/No such command|Unknown command|Command not found/i.test(response)) {
+    const lowerResponse = response.toLowerCase();
+    
+    if (/No such command|Unknown command|Command not found|usage:/i.test(response)) {
       return ErrorCodes.INVALID_COMMAND;
     }
-    if (/Permission denied|Access denied/i.test(response)) {
+    if (/Permission denied|Access denied|Bad rcon/i.test(response)) {
       return ErrorCodes.PERMISSION_DENIED;
     }
-    if (/Timeout/i.test(response)) {
+    if (/Timeout|timed out/i.test(response)) {
       return ErrorCodes.TIMEOUT;
     }
-    if (/Connection failed/i.test(response)) {
+    if (/Connection failed|Connection refused|Connection reset/i.test(response)) {
       return ErrorCodes.CONNECTION_FAILED;
     }
-    if (/Resource.*not found|Plugin.*not found/i.test(response)) {
+    if (/Resource .* not found|Plugin .* not found|Resource .* does not exist/i.test(response)) {
       return ErrorCodes.RESOURCE_NOT_FOUND;
     }
-    if (/Invalid|argument.*null/i.test(response)) {
+    if (/Invalid|argument.*null|Missing argument|Syntax error/i.test(response)) {
       return ErrorCodes.INVALID_ARGUMENTS;
     }
-    if (/script error|Failed to/i.test(response)) {
+    if (/script error|Failed to|Error:/i.test(response)) {
       return ErrorCodes.COMMAND_FAILED;
     }
     
@@ -263,7 +319,61 @@ export class ResponseParser {
         }
       };
     }
+
+    const trimmedCommand = command.trim();
+    const commandName = trimmedCommand.split(/\s+/)[0]?.toLowerCase() || '';
+    if (this.KNOWN_UNSUPPORTED_COMMANDS.has(commandName)) {
+      const suggestions = this.getUnsupportedCommandSuggestions(commandName);
+      const suggestionText = suggestions.length > 0
+        ? ` Suggested alternatives: ${suggestions.join(' | ')}`
+        : '';
+
+      return {
+        success: false,
+        message: `Unsupported FiveM command "${commandName}".${suggestionText}`,
+        error: {
+          code: ErrorCodes.INVALID_COMMAND,
+          message: `Unsupported FiveM command "${commandName}".`,
+          details: {
+            command,
+            command_name: commandName,
+            suggested_commands: suggestions
+          }
+        }
+      };
+    }
     
     return null; // Valid command
+  }
+
+  private static getUnsupportedCommandSuggestions(commandName: string): string[] {
+    switch (commandName) {
+      case 'status':
+      case 'list':
+        return [
+          'fivem_system_manage action=health',
+          'fivem_player_get action=list'
+        ];
+      case 'resmon':
+        return [
+          'fivem_resource_analyze',
+          'fivem_server_info info_type=performance'
+        ];
+      case 'resource':
+        return [
+          'start <resource>',
+          'stop <resource>',
+          'ensure <resource>',
+          'restart <resource>',
+          'refresh'
+        ];
+      case 'uptime':
+        return [
+          'version',
+          'fivem_server_info info_type=performance'
+        ];
+      default:
+        return ['fivem_system_manage action=health'];
+    }
   }
 }

@@ -7,7 +7,7 @@ local resourceName = GetCurrentResourceName()
 Citizen.CreateThread(function()
     mcpLog('info', 'MCP Bridge Plugin (RCON) starting...', {
         resource = resourceName,
-        version = '2.0.0',
+        version = '2.2.0',
         method = 'RCON Commands'
     })
     
@@ -17,7 +17,7 @@ Citizen.CreateThread(function()
     end
     
     mcpLog('info', 'MCP Bridge Plugin started successfully')
-    mcpLog('info', 'Available commands: mcp_execute, mcp_event_server, mcp_event_client, mcp_players, mcp_player_info, mcp_client_command, mcp_client_command_all')
+    mcpLog('info', 'Available commands: mcp_execute, mcp_event_server, mcp_event_client, mcp_event_client_ack, mcp_players, mcp_player_info, mcp_client_command, mcp_client_command_all, mcp_client_execute, mcp_async_poll, mcp_player_control, mcp_player_control_poll, mcp_health')
 end)
 
 -- Resource stop handler
@@ -123,15 +123,7 @@ exports('getPlayerInfo', function(playerId)
         return formatError('Player is not online', { player_id = playerId })
     end
     
-    local playerInfo = {
-        id = playerId,
-        name = GetPlayerName(playerId),
-        ping = GetPlayerPing(playerId),
-        endpoint = GetPlayerEndpoint(playerId),
-        identifiers = GetPlayerIdentifiers(playerId),
-        tokens = GetPlayerTokens(playerId),
-        last_msg = GetPlayerLastMsg(playerId)
-    }
+    local playerInfo = buildPlayerInfo(playerId, shouldIncludePlayerTokens())
     
     mcpLog('info', 'Retrieved player info via export', { 
         player_id = playerId,

@@ -14,18 +14,52 @@ FiveM RCON Model Context Protocolサーバー
 - リソースの更新とサーバーステータスの確認
 - 任意のRCONコマンドの実行
 
-## 🚀 新しい統合ツール（v0.3.0）
+## MCP Tools (v0.4.0)
 
-**改善点:**
-- ✅ 17個のツールを7個に統合
-- ✅ 統一された命名規則（fivem_* プレフィックス）
-- ✅ サーバー・クライアント間でのコマンド実行機能追加
-- ✅ 直接RCONコマンド実行の分離
-- ✅ ResponseParserの改善でエラー処理を最適化
-- ✅ 機能的グループ化で直感的な操作
-- ✅ 冗長性の排除で保守性向上
+MCP server version: `0.4.0`  
+mcp-bridge plugin version: `2.2.0`
 
-### 📋 統合ツール一覧
+公開ツールは **13 個** です（`fivem_*` プレフィックス）。
+
+| Tool | Purpose |
+|---|---|
+| `fivem_plugin_manage` | ensure / stop / restart / refresh |
+| `fivem_command_execute` | server/client command execution (`wait_for_result` for client) |
+| `fivem_rcon_execute` | direct RCON commands |
+| `fivem_event_trigger` | server/client events (`wait_for_ack` optional) |
+| `fivem_player_get` | player list / info |
+| `fivem_player_control` | dev QA: teleport, state, input, screenshot, health/armor/weapon/vehicle |
+| `fivem_logs_get` | server/client/plugin logs |
+| `fivem_system_manage` | plugin health / clear MCP internal logs |
+| `fivem_server_info` | status / config / resources / performance |
+| `fivem_resource_analyze` | lightweight resource analysis |
+| `fivem_batch_execute` | sequential or parallel command batches |
+| `fivem_logs_watch` | polling-based log watch |
+| `fivem_command_validate` | pre-flight command validation |
+
+検証手順: [docs/verification.md](docs/verification.md)
+
+## Development Server Prerequisites
+
+`dev-local.cfg` example:
+
+```cfg
+setr mcp_bridge_enabled 1
+setr mcp_bridge_allow_player_control 1
+setr mcp_bridge_dev_only 1
+setr mcp_bridge_include_tokens 0
+ensure mcp-bridge
+ensure screencapture
+```
+
+Optional security convars:
+
+- `mcp_bridge_command_allowlist`
+- `mcp_bridge_command_denylist`
+- `mcp_bridge_event_allowlist`
+- `mcp_bridge_event_denylist`
+
+## 🚀 Core Tools
 
 #### 1. `fivem_plugin_manage` - プラグイン管理
 プラグインの開始、停止、再起動、リソース更新を統合管理
@@ -54,10 +88,9 @@ fivem_plugin_manage --action refresh
 
 **パラメータ:**
 - `mode` (必須): "server" | "client"
-  - **"server"**: サーバー側でコマンドを実行
-  - **"client"**: クライアント側でコマンドを実行
 - `command` (必須): 実行するコマンド
-- `player_id` (オプション): クライアントモード時のターゲットプレイヤーID（未指定の場合は全クライアントで実行）
+- `player_id` (オプション): クライアントモード時のターゲットプレイヤーID
+- `wait_for_result` (オプション): クライアント実行結果を poll で待つ（デフォルト: `true`）
 
 **使用例:**
 ```bash
@@ -93,7 +126,8 @@ fivem_rcon_execute --command "restart my-plugin"
 - `type` (必須): "server" | "client"
 - `event_name` (必須): イベント名
 - `player_id` (client時必須): プレイヤーID
-- `args` (オプション): JSONエンコードされた引数
+- `args` (オプション): JSONエンコードされた引数（配列またはオブジェクト）
+- `wait_for_ack` (オプション): クライアントイベントの受信確認を poll で待つ
 
 **使用例:**
 ```bash
@@ -120,7 +154,28 @@ fivem_player_get --action list
 fivem_player_get --action info --player_id 1
 ```
 
-#### 6. `fivem_logs_get` - ログ取得
+#### 6. `fivem_player_control` - プレイヤー操作（開発・QA向け）
+テレポート、座標取得、キー入力パルス、スクリーンショットを統合
+
+**前提:** 開発サーバーで `dev-local.cfg` により `mcp-bridge` / `screencapture` が起動していること
+
+**パラメータ:**
+- `action` (必須): `get_state` | `teleport` | `freeze` | `unfreeze` | `input_pulse` | `input_sequence` | `input_tap` | `screenshot` | `set_health` | `set_armor` | `give_weapon` | `set_heading` | `spawn_vehicle` | `enter_vehicle` | `repair_vehicle` | `look_at`
+- `player_id` (必須): プレイヤーID
+- `coords` (teleport時): `{ x, y, z, heading? }`
+- `input` (input_pulse/input_tap時): `{ keys: ["W","E"], duration_ms?: number }`
+- `sequence` (input_sequence時): `[{ keys, duration_ms, delay_ms? }]`
+- `screenshot` (screenshot時): `{ quality?: 0.1-1.0 }`
+
+**使用例:**
+```bash
+fivem_player_control --action get_state --player_id 1
+fivem_player_control --action teleport --player_id 1 --coords '{"x":100,"y":200,"z":30,"heading":90}'
+fivem_player_control --action input_pulse --player_id 1 --input '{"keys":["W"],"duration_ms":2000}'
+fivem_player_control --action screenshot --player_id 1 --screenshot '{"quality":0.6}'
+```
+
+#### 7. `fivem_logs_get` - ログ取得
 サーバー・クライアント・プラグインログ取得を統合
 
 **パラメータ:**
@@ -288,6 +343,9 @@ Cursor IDEで使用するには、設定を追加します：
 - `RCON_PASSWORD`: RCONパスワード（必須）
 - `FIVEM_LOGS_DIR`: サーバーログファイルが格納されているディレクトリのパス（**サーバーログ機能使用時は必須**）
 - `FIVEM_CLIENT_LOGS_DIR`: クライアントログファイルが格納されているディレクトリのパス（**クライアントログ機能使用時は必須**）
+- `FIVEM_SCREENSHOTS_DIR`: mcp-bridge の screenshot 読み取り先（省略時は `FIVEM_MCP_BRIDGE_PATH/screenshots`）
+- `FIVEM_MCP_SYNC_TARGET`: `npm run sync` のデプロイ先
+- `FIVEM_MCP_BRIDGE_PATH`: mcp-bridge リソースのベースパス
 
 すべての環境変数が設定されている場合、MCPサーバー起動時に自動的に接続を試行します。
 
@@ -374,6 +432,13 @@ npm run inspector
 InspectorはブラウザでデバッグツールにアクセスするためのURLを提供します。
 
 ## 📝 変更履歴
+
+### v0.4.0
+- Client command execution now supports async result polling (`wait_for_result`)
+- Client event delivery ack (`wait_for_ack`) via `mcp_event_client_ack` / `mcp_async_poll`
+- Extended player control actions (health/armor/weapon/vehicle/look_at)
+- Security gates, audit logging, optional token redaction
+- Documentation/version alignment and verification guide
 
 ### v0.3.0 (2025-07-06)
 - **🆕 新機能**: サーバー・クライアント間でのコマンド実行機能追加
